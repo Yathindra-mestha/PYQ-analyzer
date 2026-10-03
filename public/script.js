@@ -1,221 +1,253 @@
-// --------------------------------------------------------------------------
-// STATE & CONFIG
-// --------------------------------------------------------------------------
-let state = {
-    selectedFiles: [],
-    analysisData: null,
-    activeFilter: 'all', // 'all', 'text', 'ocr'
-    searchQuery: ''
-};
+const API_LOCAL = 'http://127.0.0.1:8000';
+let API_CLOUD = localStorage.getItem('API_URL') || '';
 
-// Configurable API URL for seamless transition to Vercel/Render
-const DEFAULT_API = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'http://127.0.0.1:8000'
-    : '';
+let selectedFiles = [];
+// Store analysis data
+let globalAnalysisData = {};
+let currentSubject = "";
 
-function getApiBase() {
-    return localStorage.getItem('preprank_api_url') || DEFAULT_API;
-}
-
-function setApiBase(url) {
-    if (url) {
-        localStorage.setItem('preprank_api_url', url.replace(/\/+$/, ''));
-    } else {
-        localStorage.removeItem('preprank_api_url');
-    }
-}
-
-// --------------------------------------------------------------------------
-// DOM ELEMENTS
-// --------------------------------------------------------------------------
-const dropzone = document.getElementById('dropzone');
+// DOM Elements
 const fileInput = document.getElementById('fileInput');
+const dropzone = document.getElementById('dropzone');
 const browseBtn = document.getElementById('browseBtn');
+const analyzeBtn = document.getElementById('analyzeBtn');
 const fileListContainer = document.getElementById('fileListContainer');
 const fileChips = document.getElementById('fileChips');
 const selectedCountText = document.getElementById('selectedCountText');
-const clearAllFiles = document.getElementById('clearAllFiles');
-const analyzeBtn = document.getElementById('analyzeBtn');
+const clearAllBtn = document.getElementById('clearAllFiles');
 
 const progressSection = document.getElementById('progressSection');
 const progressStepText = document.getElementById('progressStepText');
-const progressPercent = document.getElementById('progressPercent');
 const progressBar = document.getElementById('progressBar');
-
+const progressPercent = document.getElementById('progressPercent');
 const resultsSection = document.getElementById('resultsSection');
+
+const pagesList = document.getElementById('pagesList');
 const topSummaryText = document.getElementById('topSummaryText');
 const statTotalPages = document.getElementById('statTotalPages');
-const statTextPages = document.getElementById('statTextPages');
-const statOcrPages = document.getElementById('statOcrPages');
+const statTotalQuestions = document.getElementById('statTotalQuestions');
+const statRepeatedQs = document.getElementById('statRepeatedQs');
 const statPapersCount = document.getElementById('statPapersCount');
 
-const pageSearch = document.getElementById('pageSearch');
-const pagesList = document.getElementById('pagesList');
 const filterPills = document.querySelectorAll('.filter-pill');
+const pageSearch = document.getElementById('pageSearch');
+let pagesData = [];
 
-const backendStatus = document.getElementById('backendStatus');
-const statusText = document.getElementById('statusText');
-
+// API Config Modal Elements
 const configBtn = document.getElementById('configBtn');
 const configModal = document.getElementById('configModal');
 const closeModalBtn = document.getElementById('closeModalBtn');
-const apiUrlInput = document.getElementById('apiUrlInput');
 const saveConfigBtn = document.getElementById('saveConfigBtn');
+const apiUrlInput = document.getElementById('apiUrlInput');
 const presetLocal = document.getElementById('presetLocal');
 const presetRelative = document.getElementById('presetRelative');
+const backendStatus = document.getElementById('backendStatus');
+const statusText = document.getElementById('statusText');
+
 const toast = document.getElementById('toast');
 
-// --------------------------------------------------------------------------
-// INITIALIZATION
-// --------------------------------------------------------------------------
-window.addEventListener('DOMContentLoaded', () => {
-    checkBackendHealth();
-    setupDropzone();
-    setupConfigModal();
-    setupFiltersAndSearch();
+// Initialize
+checkHealth();
+
+// -------------------------------------------------------------
+// Tabs Logic
+// -------------------------------------------------------------
+const tabBtns = document.querySelectorAll('.tab-btn');
+const tabContents = document.querySelectorAll('.tab-content');
+
+tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        tabBtns.forEach(b => b.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+        
+        btn.classList.add('active');
+        document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    });
 });
 
-// --------------------------------------------------------------------------
-// BACKEND HEALTH CHECK
-// --------------------------------------------------------------------------
-async function checkBackendHealth() {
+// -------------------------------------------------------------
+// Accordion Logic
+// -------------------------------------------------------------
+const accordionHeaders = document.querySelectorAll('.accordion-header');
+accordionHeaders.forEach(header => {
+    header.addEventListener('click', () => {
+        const item = header.parentElement;
+        item.classList.toggle('active');
+    });
+});
+
+// -------------------------------------------------------------
+// Config Modal Logic
+// -------------------------------------------------------------
+function getApiBase() {
+    return API_CLOUD || API_LOCAL;
+}
+
+configBtn.addEventListener('click', () => {
+    apiUrlInput.value = getApiBase();
+    configModal.classList.remove('hidden');
+});
+
+closeModalBtn.addEventListener('click', () => {
+    configModal.classList.add('hidden');
+});
+
+presetLocal.addEventListener('click', () => {
+    apiUrlInput.value = API_LOCAL;
+});
+
+presetRelative.addEventListener('click', () => {
+    apiUrlInput.value = '/api';
+});
+
+saveConfigBtn.addEventListener('click', () => {
+    let val = apiUrlInput.value.trim();
+    if (val.endsWith('/')) val = val.slice(0, -1);
+    
+    if (val !== API_LOCAL) {
+        localStorage.setItem('API_URL', val);
+        API_CLOUD = val;
+    } else {
+        localStorage.removeItem('API_URL');
+        API_CLOUD = '';
+    }
+    
+    configModal.classList.add('hidden');
+    checkHealth();
+});
+
+async function checkHealth() {
     backendStatus.className = 'status-badge checking';
     statusText.textContent = 'Checking Backend...';
-    const baseUrl = getApiBase();
-
+    
     try {
-        const res = await fetch(`${baseUrl}/health`, { method: 'GET' });
+        const url = getApiBase();
+        const res = await fetch(`${url}/health`, { method: 'GET' });
         if (res.ok) {
             backendStatus.className = 'status-badge online';
-            statusText.textContent = baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost') 
-                ? 'Backend: Online' 
-                : 'Backend: Connected';
+            statusText.textContent = 'Backend: Online';
         } else {
-            throw new Error();
+            throw new Error('Not OK');
         }
-    } catch (e) {
+    } catch (err) {
         backendStatus.className = 'status-badge offline';
-        statusText.textContent = 'Backend Offline';
+        statusText.textContent = 'Backend: Offline';
     }
 }
 
-// --------------------------------------------------------------------------
-// DROPZONE & FILE SELECTION
-// --------------------------------------------------------------------------
-function setupDropzone() {
-    browseBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        fileInput.click();
-    });
+// -------------------------------------------------------------
+// Drag and Drop & File Selection
+// -------------------------------------------------------------
+browseBtn.addEventListener('click', () => fileInput.click());
 
-    dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+    fileInput.value = ''; // Reset
+});
 
-    ['dragenter', 'dragover'].forEach(event => {
-        dropzone.addEventListener(event, (e) => {
-            e.preventDefault();
-            dropzone.classList.add('drag-active');
-        });
-    });
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    dropzone.addEventListener(eventName, preventDefaults, false);
+});
 
-    ['dragleave', 'drop'].forEach(event => {
-        dropzone.addEventListener(event, (e) => {
-            e.preventDefault();
-            dropzone.classList.remove('drag-active');
-        });
-    });
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
 
-    dropzone.addEventListener('drop', (e) => {
-        const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
-        if (files.length === 0) {
-            showToast('Please drop PDF files only.');
-            return;
+['dragenter', 'dragover'].forEach(eventName => {
+    dropzone.addEventListener(eventName, () => dropzone.classList.add('drag-active'), false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    dropzone.addEventListener(eventName, () => dropzone.classList.remove('drag-active'), false);
+});
+
+dropzone.addEventListener('drop', (e) => {
+    handleFiles(e.dataTransfer.files);
+});
+
+function handleFiles(files) {
+    if (!files.length) return;
+    for (let i = 0; i < files.length; i++) {
+        if (files[i].type === 'application/pdf' || files[i].name.toLowerCase().endsWith('.pdf')) {
+            selectedFiles.push(files[i]);
         }
-        addFiles(files);
-    });
-
-    fileInput.addEventListener('change', (e) => {
-        const files = Array.from(e.target.files);
-        addFiles(files);
-    });
-
-    clearAllFiles.addEventListener('click', () => {
-        state.selectedFiles = [];
-        updateFilePreview();
-    });
-
-    analyzeBtn.addEventListener('click', runAnalysis);
+    }
+    updateFileListUI();
 }
 
-function addFiles(newFiles) {
-    newFiles.forEach(file => {
-        if (!state.selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
-            state.selectedFiles.push(file);
-        }
-    });
-    updateFilePreview();
-}
-
-function removeFile(index) {
-    state.selectedFiles.splice(index, 1);
-    updateFilePreview();
-}
-
-function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-function updateFilePreview() {
-    if (state.selectedFiles.length === 0) {
+function updateFileListUI() {
+    if (selectedFiles.length === 0) {
         fileListContainer.classList.add('hidden');
         analyzeBtn.disabled = true;
-        fileInput.value = '';
         return;
     }
 
     fileListContainer.classList.remove('hidden');
     analyzeBtn.disabled = false;
-    selectedCountText.textContent = `${state.selectedFiles.length} Paper${state.selectedFiles.length > 1 ? 's' : ''} Selected`;
+    selectedCountText.textContent = `${selectedFiles.length} Paper${selectedFiles.length > 1 ? 's' : ''} Selected`;
 
     fileChips.innerHTML = '';
-    state.selectedFiles.forEach((file, index) => {
+    selectedFiles.forEach((file, index) => {
         const chip = document.createElement('div');
         chip.className = 'file-chip';
-        chip.innerHTML = `
-            <span>📄 ${file.name} <small style="color:var(--text-muted)">(${formatBytes(file.size)})</small></span>
-            <span class="remove-chip" title="Remove">&times;</span>
-        `;
-        chip.querySelector('.remove-chip').addEventListener('click', (e) => {
-            e.stopPropagation();
-            removeFile(index);
-        });
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'file-name';
+        nameSpan.textContent = file.name;
+        nameSpan.title = file.name;
+        
+        const sizeSpan = document.createElement('span');
+        sizeSpan.className = 'file-size';
+        sizeSpan.textContent = `(${(file.size / (1024 * 1024)).toFixed(1)} MB)`;
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'file-delete-btn';
+        delBtn.innerHTML = '&times;';
+        delBtn.onclick = () => {
+            selectedFiles.splice(index, 1);
+            updateFileListUI();
+        };
+
+        chip.appendChild(nameSpan);
+        chip.appendChild(sizeSpan);
+        chip.appendChild(delBtn);
         fileChips.appendChild(chip);
     });
 }
 
-// --------------------------------------------------------------------------
-// RUN ANALYSIS (KEEP PROGRESS MESSAGE & ERROR HANDLING)
-// --------------------------------------------------------------------------
-async function runAnalysis() {
-    if (state.selectedFiles.length === 0) return;
+clearAllBtn.addEventListener('click', () => {
+    selectedFiles = [];
+    updateFileListUI();
+});
 
-    analyzeBtn.disabled = true;
+// -------------------------------------------------------------
+// Analyze Papers
+// -------------------------------------------------------------
+analyzeBtn.addEventListener('click', async () => {
+    if (selectedFiles.length === 0) return;
+
+    // Show Progress UI
     progressSection.classList.remove('hidden');
     resultsSection.classList.add('hidden');
+    analyzeBtn.disabled = true;
+
+    // Reset Progress
+    progressPercent.textContent = '0%';
+    progressBar.style.width = '0%';
+    progressStepText.textContent = 'Uploading PDF papers...';
 
     const formData = new FormData();
-    state.selectedFiles.forEach(f => formData.append('files', f));
+    selectedFiles.forEach(file => {
+        formData.append('files', file);
+    });
 
-    // Progress message steps
     let step = 0;
     let tickCount = 0;
     const steps = [
         { text: 'Uploading PDF papers...', pct: 20 },
         { text: 'Extracting text (direct text + OCR fallback per page)...', pct: 50 },
-        { text: 'Finalizing page extractions...', pct: 85 },
+        { text: 'Fuzzy grouping questions...', pct: 85 },
         { text: 'Aggregating results...', pct: 95 }
     ];
 
@@ -247,179 +279,226 @@ async function runAnalysis() {
         }
 
         const data = await res.json();
-        progressBar.style.width = '100%';
+        
         progressPercent.textContent = '100%';
-        progressStepText.textContent = 'Analysis complete!';
-
+        progressBar.style.width = '100%';
+        progressStepText.textContent = 'Done!';
+        
         setTimeout(() => {
             progressSection.classList.add('hidden');
-            renderDashboard(data);
-        }, 300);
+            analyzeBtn.disabled = false;
+            displayResults(data);
+        }, 500);
 
     } catch (err) {
         clearInterval(interval);
         progressSection.classList.add('hidden');
+        analyzeBtn.disabled = false;
         showToast('Error analyzing files. Is the backend running?');
         console.error(err);
-    } finally {
-        analyzeBtn.disabled = false;
+    }
+});
+
+// -------------------------------------------------------------
+// Display Results
+// -------------------------------------------------------------
+function displayResults(data) {
+    resultsSection.classList.remove('hidden');
+
+    // Update Summary Header
+    topSummaryText.textContent = data.summary;
+    statTotalPages.textContent = data.total_pages;
+    statTotalQuestions.textContent = data.total_questions_extracted;
+    statPapersCount.textContent = data.paper_count;
+
+    // Cache Analysis Data
+    globalAnalysisData = data.analysis;
+    pagesData = data.pages;
+
+    // Populate Subject Dropdown
+    const subjectDropdown = document.getElementById('subjectDropdown');
+    subjectDropdown.innerHTML = '';
+    const subjects = Object.keys(globalAnalysisData);
+    
+    if (subjects.length > 0) {
+        subjects.forEach(subj => {
+            const opt = document.createElement('option');
+            opt.value = subj;
+            opt.textContent = subj;
+            subjectDropdown.appendChild(opt);
+        });
+        currentSubject = subjects[0];
+        renderAnalysis(currentSubject);
+    } else {
+        // No subjects found
+        document.getElementById('list-repeated').innerHTML = '<p class="empty-state">No questions found</p>';
+        document.getElementById('list-least').innerHTML = '<p class="empty-state">No questions found</p>';
+        document.getElementById('list-remaining').innerHTML = '<p class="empty-state">No questions found</p>';
+    }
+
+    subjectDropdown.addEventListener('change', (e) => {
+        currentSubject = e.target.value;
+        renderAnalysis(currentSubject);
+    });
+    
+    // Render Raw Text Pages
+    renderPages();
+    
+    // Smooth scroll
+    resultsSection.scrollIntoView({ behavior: 'smooth' });
+    
+    // Open Repeated section by default
+    document.getElementById('acc-repeated').classList.add('active');
+}
+
+// -------------------------------------------------------------
+// Render Analysis Data (Question Groups)
+// -------------------------------------------------------------
+function renderAnalysis(subject, filterText = "") {
+    if (!globalAnalysisData[subject]) return;
+    
+    const data = globalAnalysisData[subject];
+    const term = filterText.toLowerCase();
+
+    // Helper to render one category
+    const renderCategory = (category, elementId, badgeId) => {
+        const list = data[category].filter(q => q.text.toLowerCase().includes(term));
+        const listEl = document.getElementById(elementId);
+        const badgeEl = document.getElementById(badgeId);
+        
+        badgeEl.textContent = list.length;
+        listEl.innerHTML = '';
+        
+        if (list.length === 0) {
+            listEl.innerHTML = '<p class="empty-state">No matching questions.</p>';
+            return list.length;
+        }
+
+        list.forEach(q => {
+            const card = document.createElement('div');
+            card.className = 'question-card card';
+            
+            let marksHtml = q.marks ? `<span class="q-marks">[${q.marks} Marks]</span>` : '';
+            
+            card.innerHTML = `
+                <div class="q-header">
+                    <span class="q-count-badge">Repeated ${q.count} times</span>
+                    ${marksHtml}
+                    <button class="btn-ghost copy-btn" onclick="copyText(this)">Copy</button>
+                </div>
+                <div class="q-text-content">${q.text}</div>
+                <div class="q-footer">Seen in: ${q.locations}</div>
+            `;
+            listEl.appendChild(card);
+        });
+        
+        return list.length;
+    };
+
+    let countRepeated = renderCategory("Repeated", "list-repeated", "badge-repeated");
+    let countLeast = renderCategory("Least repeated", "list-least", "badge-least");
+    let countRemaining = renderCategory("Remaining", "list-remaining", "badge-remaining");
+    
+    // Update total repeated questions stat
+    if (filterText === "") {
+        statRepeatedQs.textContent = countRepeated;
     }
 }
 
-// --------------------------------------------------------------------------
-// RENDER DASHBOARD
-// --------------------------------------------------------------------------
-function renderDashboard(data) {
-    state.analysisData = data;
-    resultsSection.classList.remove('hidden');
+// Search functionality for Analysis Tab
+document.getElementById('analysisSearch').addEventListener('input', (e) => {
+    if (currentSubject) {
+        renderAnalysis(currentSubject, e.target.value);
+    }
+});
 
-    resultsSection.scrollIntoView({ behavior: 'smooth' });
-
-    // 1. Top Summary Banner (e.g. "35 pages: 0 text, 35 OCR")
-    topSummaryText.textContent = data.summary || `${data.total_pages} pages: ${data.text_pages} text, ${data.ocr_pages} OCR`;
-
-    // 2. Metric Cards
-    statTotalPages.textContent = data.total_pages;
-    statTextPages.textContent = data.text_pages;
-    statOcrPages.textContent = data.ocr_pages;
-    statPapersCount.textContent = data.paper_count || state.selectedFiles.length || 1;
-
-    // 3. Render Pages List
-    renderPages();
-}
-
-// --------------------------------------------------------------------------
-// FILTERS & SEARCH
-// --------------------------------------------------------------------------
-function setupFiltersAndSearch() {
-    pageSearch.addEventListener('input', (e) => {
-        state.searchQuery = e.target.value.toLowerCase().trim();
-        renderPages();
-    });
-
-    filterPills.forEach(pill => {
-        pill.addEventListener('click', () => {
-            filterPills.forEach(p => p.classList.remove('active'));
-            pill.classList.add('active');
-            state.activeFilter = pill.dataset.filter;
-            renderPages();
-        });
-    });
-}
-
-function renderPages() {
-    if (!state.analysisData || !state.analysisData.pages) return;
-
+// -------------------------------------------------------------
+// Render Raw Text Pages
+// -------------------------------------------------------------
+function renderPages(filterMethod = "all", filterText = "") {
     pagesList.innerHTML = '';
 
-    const filtered = state.analysisData.pages.filter(p => {
-        // Filter by method: 'all', 'text', 'ocr'
-        const matchesFilter = state.activeFilter === 'all' || p.method === state.activeFilter;
+    let filtered = pagesData;
 
-        // Filter by search query
-        const textToSearch = (p.text || '').toLowerCase();
-        const filenameSearch = (p.filename || '').toLowerCase();
-        const matchesSearch = !state.searchQuery || 
-            textToSearch.includes(state.searchQuery) || 
-            filenameSearch.includes(state.searchQuery);
+    if (filterMethod !== 'all') {
+        filtered = filtered.filter(p => p.method === filterMethod);
+    }
 
-        return matchesFilter && matchesSearch;
-    });
+    if (filterText) {
+        const lowerFilter = filterText.toLowerCase();
+        filtered = filtered.filter(p => 
+            p.text.toLowerCase().includes(lowerFilter) || 
+            p.filename.toLowerCase().includes(lowerFilter)
+        );
+    }
 
     if (filtered.length === 0) {
-        pagesList.innerHTML = `<div class="no-results">No pages match your filter or search query.</div>`;
+        pagesList.innerHTML = `
+            <div class="empty-state">
+                <p>No pages match the current filters.</p>
+            </div>
+        `;
         return;
     }
 
-    filtered.forEach(p => {
+    filtered.forEach(page => {
         const card = document.createElement('div');
         card.className = 'page-card';
 
-        const isText = p.method === 'text';
-        const methodBadge = isText 
-            ? `<span class="method-badge method-text">📝 Text</span>` 
-            : `<span class="method-badge method-ocr">🔍 OCR</span>`;
-
-        const filenameLabel = p.filename ? `• <span style="color:var(--text-secondary)">${escapeHtml(p.filename)}</span>` : '';
-        const charLabel = `${p.char_count || (p.text ? p.text.length : 0)} characters`;
-        const contentText = p.text && p.text.trim().length > 0 
-            ? escapeHtml(p.text) 
-            : '<em style="color:var(--text-muted)">[No text could be extracted from this page]</em>';
+        const methodBadgeClass = page.method === 'text' ? 'badge-text' : 'badge-ocr';
+        const methodLabel = page.method === 'text' ? '📝 Text' : '🔍 OCR';
 
         card.innerHTML = `
             <div class="page-header">
                 <div class="page-meta">
-                    <span class="page-title">Page ${p.page_num} ${filenameLabel}</span>
-                    ${methodBadge}
-                    <span class="page-chars">(${charLabel})</span>
+                    <span class="page-file">${page.filename} <span class="page-num">#${page.page_num}</span></span>
+                    <span class="page-stats">${page.char_count} chars</span>
                 </div>
-                <button class="copy-btn" title="Copy Page Text">📋 Copy Text</button>
+                <span class="method-badge ${methodBadgeClass}">${methodLabel}</span>
             </div>
-            <div class="page-text-preview">${contentText}</div>
+            <div class="page-content">${page.text}</div>
         `;
-
-        card.querySelector('.copy-btn').addEventListener('click', () => {
-            navigator.clipboard.writeText(p.text || '');
-            showToast(`Page ${p.page_num} text copied!`);
-        });
 
         pagesList.appendChild(card);
     });
 }
 
-function escapeHtml(str) {
-    if (!str) return '';
-    return str.replace(/[&<>"']/g, function(m) {
-        return {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        }[m];
+// Pill Filters for Raw Text
+filterPills.forEach(pill => {
+    pill.addEventListener('click', (e) => {
+        filterPills.forEach(p => p.classList.remove('active'));
+        e.target.classList.add('active');
+        
+        const filter = e.target.getAttribute('data-filter');
+        const textFilter = pageSearch.value;
+        renderPages(filter, textFilter);
+    });
+});
+
+pageSearch.addEventListener('input', (e) => {
+    const activePill = document.querySelector('.filter-pill.active');
+    const filter = activePill ? activePill.getAttribute('data-filter') : 'all';
+    renderPages(filter, e.target.value);
+});
+
+// -------------------------------------------------------------
+// Utilities
+// -------------------------------------------------------------
+window.copyText = function(btn) {
+    const textEl = btn.parentElement.nextElementSibling;
+    const text = textEl.textContent.trim();
+    navigator.clipboard.writeText(text).then(() => {
+        showToast("Copied to clipboard!");
     });
 }
 
-// --------------------------------------------------------------------------
-// MODAL & CONFIG (FOR VERCEL TRANSITION)
-// --------------------------------------------------------------------------
-function setupConfigModal() {
-    configBtn.addEventListener('click', () => {
-        apiUrlInput.value = getApiBase();
-        configModal.classList.remove('hidden');
-    });
-
-    closeModalBtn.addEventListener('click', () => configModal.classList.add('hidden'));
-
-    presetLocal.addEventListener('click', () => {
-        apiUrlInput.value = 'http://127.0.0.1:8000';
-    });
-
-    presetRelative.addEventListener('click', () => {
-        apiUrlInput.value = '';
-    });
-
-    saveConfigBtn.addEventListener('click', () => {
-        setApiBase(apiUrlInput.value.trim());
-        configModal.classList.add('hidden');
-        showToast('API Configuration saved!');
-        checkBackendHealth();
-    });
-
-    configModal.addEventListener('click', (e) => {
-        if (e.target === configModal) configModal.classList.add('hidden');
-    });
-}
-
-// --------------------------------------------------------------------------
-// TOAST NOTIFICATIONS
-// --------------------------------------------------------------------------
-let toastTimeout;
-function showToast(msg) {
-    toast.textContent = msg;
+function showToast(message) {
+    toast.textContent = message;
     toast.classList.remove('hidden');
-    clearTimeout(toastTimeout);
-    toastTimeout = setTimeout(() => {
-        toast.classList.add('hidden');
-    }, 2800);
+    toast.classList.add('show');
+    
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.classList.add('hidden'), 300);
+    }, 2500);
 }

@@ -36,7 +36,7 @@
         <section class="hero-section">
             <h1 class="hero-title">Past Paper Analyzer</h1>
             <p class="hero-desc">
-                Upload question paper PDFs (both selectable text and scanned photos). The engine automatically extracts text directly or runs OCR per page.
+                Upload question paper PDFs (both selectable text and scanned photos). The engine automatically extracts text, detects questions, and groups repeated ones.
             </p>
         </section>
 
@@ -102,18 +102,18 @@
                 </div>
 
                 <div class="metric-card">
-                    <div class="metric-icon">📝</div>
+                    <div class="metric-icon">❓</div>
                     <div class="metric-data">
-                        <span class="metric-value" id="statTextPages">0</span>
-                        <span class="metric-label">Direct Text Pages</span>
+                        <span class="metric-value" id="statTotalQuestions">0</span>
+                        <span class="metric-label">Total Questions</span>
                     </div>
                 </div>
 
                 <div class="metric-card accent">
-                    <div class="metric-icon">🔍</div>
+                    <div class="metric-icon">🔄</div>
                     <div class="metric-data">
-                        <span class="metric-value" id="statOcrPages">0</span>
-                        <span class="metric-label">OCR Scanned Pages</span>
+                        <span class="metric-value" id="statRepeatedQs">0</span>
+                        <span class="metric-label">Repeated Questions</span>
                     </div>
                 </div>
 
@@ -126,32 +126,97 @@
                 </div>
             </div>
 
-            <!-- Extracted Pages Section -->
-            <div class="card pages-card">
-                <div class="card-header flex-col-sm">
-                    <div>
-                        <h2 class="card-title">Extracted Page Content</h2>
-                        <p class="card-subtitle">Review extracted text and extraction method for each page</p>
-                    </div>
-                    <!-- Search Input -->
-                    <div class="search-box">
-                        <span class="search-icon">🔍</span>
-                        <input type="text" id="pageSearch" placeholder="Search extracted text...">
-                    </div>
-                </div>
+            <!-- Tabs Navigation -->
+            <div class="tabs-nav">
+                <button class="tab-btn active" data-tab="analysis">🧠 Analysis</button>
+                <button class="tab-btn" data-tab="rawtext">📝 Raw Text</button>
+            </div>
 
-                <!-- Method Filter Pills -->
-                <div class="filter-pills-bar">
-                    <button class="filter-pill active" data-filter="all">All Pages</button>
-                    <button class="filter-pill" data-filter="text">📝 Direct Text</button>
-                    <button class="filter-pill" data-filter="ocr">🔍 OCR Fallback</button>
-                </div>
+            <!-- Tab Content: Analysis -->
+            <div id="tab-analysis" class="tab-content active">
+                <div class="card pages-card">
+                    <div class="card-header flex-col-sm">
+                        <div style="flex: 1;">
+                            <h2 class="card-title">Subject Analysis</h2>
+                            <p class="card-subtitle">Questions grouped by repetition across different papers</p>
+                            <div class="subject-select-wrapper" style="margin-top: 12px;">
+                                <select id="subjectDropdown" class="input-select"></select>
+                            </div>
+                        </div>
+                        <!-- Search Input -->
+                        <div class="search-box">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" id="analysisSearch" placeholder="Search questions...">
+                        </div>
+                    </div>
 
-                <!-- Pages Feed -->
-                <div class="pages-list" id="pagesList">
-                    <!-- Page cards will be populated here -->
+                    <!-- Collapsible Sections -->
+                    <div class="accordion-container" id="analysisAccordion">
+                        <!-- Repeated Section -->
+                        <div class="accordion-item" id="acc-repeated">
+                            <button class="accordion-header">
+                                <span>🔥 Repeated (3+ papers) <span class="badge" id="badge-repeated">0</span></span>
+                                <span class="icon">▼</span>
+                            </button>
+                            <div class="accordion-content">
+                                <div class="questions-list" id="list-repeated"></div>
+                            </div>
+                        </div>
+
+                        <!-- Least Repeated Section -->
+                        <div class="accordion-item" id="acc-least">
+                            <button class="accordion-header">
+                                <span>⭐ Least Repeated (2 papers) <span class="badge" id="badge-least">0</span></span>
+                                <span class="icon">▼</span>
+                            </button>
+                            <div class="accordion-content">
+                                <div class="questions-list" id="list-least"></div>
+                            </div>
+                        </div>
+
+                        <!-- Remaining Section -->
+                        <div class="accordion-item" id="acc-remaining">
+                            <button class="accordion-header">
+                                <span>📄 Remaining (1 paper) <span class="badge" id="badge-remaining">0</span></span>
+                                <span class="icon">▼</span>
+                            </button>
+                            <div class="accordion-content">
+                                <div class="questions-list" id="list-remaining"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
+
+            <!-- Tab Content: Raw Text -->
+            <div id="tab-rawtext" class="tab-content">
+                <div class="card pages-card">
+                    <div class="card-header flex-col-sm">
+                        <div>
+                            <h2 class="card-title">Raw Extracted Pages</h2>
+                            <p class="card-subtitle">Review raw text and extraction method for each page</p>
+                        </div>
+                        <!-- Search Input -->
+                        <div class="search-box">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" id="pageSearch" placeholder="Search extracted text...">
+                        </div>
+                    </div>
+
+                    <!-- Method Filter Pills -->
+                    <div class="filter-pills-bar">
+                        <button class="filter-pill active" data-filter="all">All Pages</button>
+                        <button class="filter-pill" data-filter="text">📝 Direct Text</button>
+                        <button class="filter-pill" data-filter="ocr">🔍 OCR Fallback</button>
+                    </div>
+
+                    <!-- Pages Feed -->
+                    <div class="pages-list" id="pagesList">
+                        <!-- Page cards will be populated here -->
+                    </div>
+                </div>
+            </div>
+
         </section>
     </main>
 
@@ -184,7 +249,7 @@
     </div>
 
     <!-- Toast notification -->
-    <div id="toast" class="toast hidden">Text copied to clipboard!</div>
+    <div id="toast" class="toast hidden">Copied to clipboard!</div>
 
     <script src="script.js"></script>
 </body>
