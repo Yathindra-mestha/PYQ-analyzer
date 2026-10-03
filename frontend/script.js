@@ -379,6 +379,7 @@ function renderAnalysis(subject, filterText = "") {
             card.className = 'question-card card';
             
             let marksHtml = q.marks ? `<span class="q-marks">[${q.marks} Marks]</span>` : '';
+            let imageHtml = q.image_url ? `<div class="q-image-container"><img src="${getApiBase()}${q.image_url}" alt="Question Cropped Image" class="q-image" loading="lazy"></div>` : '';
             
             card.innerHTML = `
                 <div class="q-header">
@@ -386,6 +387,7 @@ function renderAnalysis(subject, filterText = "") {
                     ${marksHtml}
                     <button class="btn-ghost copy-btn" onclick="copyText(this)">Copy</button>
                 </div>
+                ${imageHtml}
                 <div class="q-text-content">${q.text}</div>
                 <div class="q-footer">Seen in: ${q.locations}</div>
             `;
@@ -399,11 +401,17 @@ function renderAnalysis(subject, filterText = "") {
     let countLeast = renderCategory("Least repeated", "list-least", "badge-least");
     let countRemaining = renderCategory("Remaining", "list-remaining", "badge-remaining");
     
-    // Update total repeated questions stat
     if (filterText === "") {
         statRepeatedQs.textContent = countRepeated;
     }
 }
+
+// Download Excel logic
+document.getElementById('downloadExcelBtn').addEventListener('click', () => {
+    if (!currentSubject) return;
+    const url = `${getApiBase()}/export?subject=${encodeURIComponent(currentSubject)}`;
+    window.open(url, '_blank');
+});
 
 // Search functionality for Analysis Tab
 document.getElementById('analysisSearch').addEventListener('input', (e) => {

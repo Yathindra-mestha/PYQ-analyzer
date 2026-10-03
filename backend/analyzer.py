@@ -1,15 +1,14 @@
 import re
+import os
 from rapidfuzz import fuzz
+from PIL import Image
 
 REPEATED_THRESHOLD = 3
 LEAST_REPEATED_THRESHOLD = 2
 SIMILARITY_THRESHOLD = 75.0
 
-def clean_ocr_text(text: str) -> str:
-    """Removes headers, footers, noise and blank lines from OCR text."""
-    lines = text.split('\n')
+def clean_ocr_lines(lines: list) -> list:
     cleaned = []
-    
     noise_patterns = [
         r"(?i).*autonomous institute.*",
         r"(?i).*accredited by.*",
@@ -20,39 +19,33 @@ def clean_ocr_text(text: str) -> str:
         r"(?i).*degree examination.*"
     ]
     
-    for line in lines:
-        line_clean = line.strip()
+    for l in lines:
+        line_clean = l["text"].strip()
         if not line_clean:
             continue
-        
+            
         is_noise = False
         for p in noise_patterns:
             if re.match(p, line_clean):
                 is_noise = True
                 break
                 
-        # Remove very short lines likely to be noise (but keep valid question letters/numbers)
         if len(line_clean) < 3 and not re.match(r"^(\d+[a-z]?|[a-z])[\.\)]", line_clean.lower()):
             is_noise = True
             
         if not is_noise:
-            cleaned.append(line_clean)
+            cleaned.append({"text": line_clean, "y0": l["y0"], "y1": l["y1"]})
             
-    return "\n".join(cleaned)
+    return cleaned
 
-def extract_subject_info(text: str, filename: str) -> tuple[str, str]:
-    """Extracts subject name and course code from the first few lines of text."""
-    # Look for course code like 23ECPC210, 21CS42, 18MAT31
+def extract_subject_info(lines: list, filename: str) -> tuple[str, str]:
+    text = "\n".join([l["text"] for l in lines[:15]])
     code_match = re.search(r"([0-9]{2}[A-Z]{2,4}[0-9]{2,3})", text, re.IGNORECASE)
     course_code = code_match.group(1).upper() if code_match else "UNKNOWN_CODE"
     
-    # Try to extract subject name (usually the line before or near the code)
-    lines = text.split('\n')[:15]
     subject = "Unknown Subject"
-    
-    for line in lines:
-        line = line.strip()
-        # Simplistic heuristic: mostly uppercase, > 5 chars, not containing generic words
+    for l in lines[:15]:
+        line = l["text"].strip()
         if len(line) > 5 and line.isupper() and "EXAMINATION" not in line and "INSTITUTE" not in line and "TIME:" not in line and "MARKS:" not in line:
             subject = line
             break
@@ -62,24 +55,33 @@ def extract_subject_info(text: str, filename: str) -> tuple[str, str]:
         
     return subject, course_code
 
-def split_into_questions(text: str) -> list[dict]:
-    """Splits text into questions based on numbering and extracts marks."""
+def split_into_questions_and_crop(lines: list, image_path: str, page_height: float, filename: str, page_num: int) -> list[dict]:
     q_pattern = re.compile(r"^(?:Q\d+|\d+[a-z]?[\.\)]|\(\w\))\s+(.*)", re.IGNORECASE)
     marks_pattern = re.compile(r"[\(\[]\s*(\d+)\s*(?:Marks|M)?\s*[\)\]]", re.IGNORECASE)
     
-    lines = text.split('\n')
     questions = []
-    current_q = []
+    current_q_text = []
     current_marks = ""
+    start_y = 0
     
-    for line in lines:
+    for idx, l in enumerate(lines):
+        line = l["text"]
         match = q_pattern.match(line)
+        
         if match:
-            if current_q:
-                q_text = " ".join(current_q).strip()
+            # Save previous
+            if current_q_text:
+                q_text = " ".join(current_q_text).strip()
                 if q_text:
-                    questions.append({"text": q_text, "marks": current_marks})
+                    questions.append({
+                        "text": q_text, 
+                        "marks": current_marks,
+                        "y_start": start_y,
+                        "y_end": l["y0"]
+                    })
             
+            # Start new
+            start_y = l["y0"]
             q_content = line
             m_match = marks_pattern.search(q_content)
             if m_match:
@@ -87,66 +89,93 @@ def split_into_questions(text: str) -> list[dict]:
                 q_content = marks_pattern.sub("", q_content).strip()
             else:
                 current_marks = ""
-                
-            current_q = [q_content]
+            current_q_text = [q_content]
+            
         else:
-            if current_q:
+            if current_q_text:
                 m_match = marks_pattern.search(line)
                 if m_match:
                     current_marks = m_match.group(1)
                     line = marks_pattern.sub("", line).strip()
-                current_q.append(line)
+                current_q_text.append(line)
             else:
-                # Text before any question starts -> we append it so it doesn't get lost
-                current_q = [line]
+                # Text before any question
+                start_y = l["y0"]
+                current_q_text = [line]
                 
-    if current_q:
-        q_text = " ".join(current_q).strip()
+    if current_q_text:
+        q_text = " ".join(current_q_text).strip()
         if q_text:
-            questions.append({"text": q_text, "marks": current_marks})
+            questions.append({
+                "text": q_text, 
+                "marks": current_marks,
+                "y_start": start_y,
+                "y_end": page_height
+            })
             
-    # If a question couldn't be detected by numbers at all, fallback to the entire text
-    if not questions and text.strip():
-        questions.append({"text": text.strip(), "marks": ""})
+    if not questions and lines:
+        questions.append({
+            "text": "\n".join([l["text"] for l in lines]),
+            "marks": "",
+            "y_start": lines[0]["y0"],
+            "y_end": page_height
+        })
+        
+    # Now crop images
+    final_qs = []
+    if os.path.exists(image_path) and questions:
+        try:
+            img = Image.open(image_path)
+            width, height = img.size
+            # The coordinates in lines are based on 72dpi, image is 150dpi
+            scale = 150 / 72
             
-    return questions
+            for idx, q in enumerate(questions):
+                y0 = max(0, int(q["y_start"] * scale) - 10)
+                y1 = min(height, int(q["y_end"] * scale))
+                
+                if y1 <= y0:
+                    y1 = y0 + 50
+                    
+                cropped = img.crop((0, y0, width, y1))
+                crop_filename = f"q_{filename.replace(' ', '_')}_p{page_num}_{idx}.jpg"
+                crop_path = os.path.join("static/images", crop_filename)
+                cropped.save(crop_path, "JPEG", quality=70)
+                
+                final_qs.append({
+                    "text": q["text"],
+                    "marks": q["marks"],
+                    "image_url": f"/images/{crop_filename}"
+                })
+        except Exception as e:
+            print(f"Failed to crop images for {image_path}: {e}")
+            for q in questions:
+                final_qs.append({"text": q["text"], "marks": q["marks"], "image_url": None})
+    else:
+        for q in questions:
+            final_qs.append({"text": q["text"], "marks": q["marks"], "image_url": None})
+            
+    return final_qs
 
 def group_questions(questions: list[dict]) -> dict:
-    """
-    Groups similar questions using rapidfuzz.
-    Categorizes them into Repeated, Least repeated, Remaining based on unique paper count.
-    """
     groups = []
-    
     for q in questions:
         q_text = q["text"]
-        found_group = False
-        
+        found = False
         for g in groups:
             rep_text = g["representative"]["text"]
             score = fuzz.ratio(q_text.lower(), rep_text.lower())
-            
             if score >= SIMILARITY_THRESHOLD:
                 g["items"].append(q)
-                found_group = True
+                found = True
                 break
-                
-        if not found_group:
-            groups.append({
-                "representative": q,
-                "items": [q]
-            })
+        if not found:
+            groups.append({"representative": q, "items": [q]})
             
-    # Format and categorize output
-    result = {
-        "Repeated": [],
-        "Least repeated": [],
-        "Remaining": []
-    }
+    result = {"Repeated": [], "Least repeated": [], "Remaining": []}
     
     for g in groups:
         items = g["items"]
-        # Count unique papers (not just total occurrences)
         unique_papers = set(item["paper"] for item in items)
         count = len(unique_papers)
         
@@ -157,28 +186,27 @@ def group_questions(questions: list[dict]) -> dict:
         else:
             category = "Remaining"
             
-        # Locations string format: "Paper 1 (page 3), Paper 2 (page 7)"
         locs = {}
         for item in items:
             if item["paper"] not in locs:
                 locs[item["paper"]] = []
             locs[item["paper"]].append(item["page"])
             
-        locations_list = []
-        for paper, pages in locs.items():
-            pages_str = ", ".join(str(p) for p in sorted(list(set(pages))))
-            locations_list.append(f"{paper} (page {pages_str})")
+        loc_list = []
+        for p, pgs in locs.items():
+            loc_list.append(f"{p} (page {', '.join(str(x) for x in sorted(set(pgs)))})")
             
         marks = next((item["marks"] for item in items if item["marks"]), "")
+        image_url = next((item["image_url"] for item in items if item["image_url"]), None)
             
         result[category].append({
             "text": g["representative"]["text"],
             "count": count,
             "marks": marks,
-            "locations": ", ".join(locations_list)
+            "locations": ", ".join(loc_list),
+            "image_url": image_url
         })
         
-    # Sort groups by count descending
     for cat in result:
         result[cat].sort(key=lambda x: x["count"], reverse=True)
         
