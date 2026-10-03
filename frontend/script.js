@@ -211,6 +211,7 @@ async function runAnalysis() {
 
     // Progress message steps
     let step = 0;
+    let tickCount = 0;
     const steps = [
         { text: 'Uploading PDF papers...', pct: 20 },
         { text: 'Extracting text (direct text + OCR fallback per page)...', pct: 50 },
@@ -224,8 +225,13 @@ async function runAnalysis() {
             progressPercent.textContent = `${steps[step].pct}%`;
             progressBar.style.width = `${steps[step].pct}%`;
             step++;
+        } else {
+            tickCount++;
+            if (tickCount > 10) {
+                progressStepText.textContent = 'Still processing... (Large or scanned PDFs may take a few minutes for OCR)';
+            }
         }
-    }, 450);
+    }, 800);
 
     try {
         const baseUrl = getApiBase();

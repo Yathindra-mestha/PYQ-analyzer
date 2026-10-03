@@ -100,6 +100,10 @@ def extract_text_from_pdf(
             raise ValueError("Either filepath or file_bytes must be provided")
 
         for page_idx, page in enumerate(doc, start=1):
+            # Print progress to the terminal for large files
+            if doc.page_count > 10 and page_idx % 5 == 0:
+                print(f"Processing page {page_idx} of {doc.page_count}...")
+
             # Step 1: Try PyMuPDF direct text extraction first
             direct_text = page.get_text().strip()
 
