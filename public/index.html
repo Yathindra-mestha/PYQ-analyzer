@@ -8,8 +8,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <!-- Chart.js for data visualization -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <!-- Top Navigation Bar -->
@@ -38,7 +36,7 @@
         <section class="hero-section">
             <h1 class="hero-title">Past Paper Analyzer</h1>
             <p class="hero-desc">
-                Upload your question paper PDFs to extract questions and analyze recurring topic frequencies.
+                Upload question paper PDFs (both selectable text and scanned photos). The engine automatically extracts text directly or runs OCR per page.
             </p>
         </section>
 
@@ -85,82 +83,73 @@
             </div>
         </section>
 
-        <!-- Analytics & Results Dashboard -->
+        <!-- Extraction Results Dashboard -->
         <section id="resultsSection" class="results-section hidden">
+            <!-- Top Summary Banner -->
+            <div class="summary-banner-box">
+                <div class="summary-label">Extraction Summary</div>
+                <div class="summary-value" id="topSummaryText">0 pages: 0 text, 0 OCR</div>
+            </div>
+
             <!-- Stat Metric Cards -->
             <div class="metrics-grid">
                 <div class="metric-card">
                     <div class="metric-icon">📑</div>
                     <div class="metric-data">
-                        <span class="metric-value" id="statPapersCount">0</span>
-                        <span class="metric-label">Papers Analyzed</span>
+                        <span class="metric-value" id="statTotalPages">0</span>
+                        <span class="metric-label">Total Pages</span>
                     </div>
                 </div>
 
                 <div class="metric-card">
-                    <div class="metric-icon">❓</div>
+                    <div class="metric-icon">📝</div>
                     <div class="metric-data">
-                        <span class="metric-value" id="statQuestionsCount">0</span>
-                        <span class="metric-label">Questions Extracted</span>
+                        <span class="metric-value" id="statTextPages">0</span>
+                        <span class="metric-label">Direct Text Pages</span>
                     </div>
                 </div>
 
                 <div class="metric-card accent">
-                    <div class="metric-icon">🎯</div>
+                    <div class="metric-icon">🔍</div>
                     <div class="metric-data">
-                        <span class="metric-value" id="statTopTopic">—</span>
-                        <span class="metric-label">Top Recurring Topic</span>
+                        <span class="metric-value" id="statOcrPages">0</span>
+                        <span class="metric-label">OCR Scanned Pages</span>
                     </div>
                 </div>
 
                 <div class="metric-card">
-                    <div class="metric-icon">📌</div>
+                    <div class="metric-icon">📁</div>
                     <div class="metric-data">
-                        <span class="metric-value" id="statTopicsFound">0</span>
-                        <span class="metric-label">Topics Identified</span>
+                        <span class="metric-value" id="statPapersCount">0</span>
+                        <span class="metric-label">Files Processed</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Chart Card -->
-            <div class="card chart-card">
-                <div class="card-header">
-                    <div>
-                        <h2 class="card-title">Topic Frequency</h2>
-                        <p class="card-subtitle">Distribution of topics across the uploaded papers</p>
-                    </div>
-                    <div class="chart-controls">
-                        <button class="chart-toggle-btn active" data-chart="bar">Bar Chart</button>
-                        <button class="chart-toggle-btn" data-chart="doughnut">Doughnut Chart</button>
-                    </div>
-                </div>
-                <div class="chart-wrapper">
-                    <canvas id="topicsChart"></canvas>
-                </div>
-            </div>
-
-            <!-- Questions Section -->
-            <div class="card questions-card">
+            <!-- Extracted Pages Section -->
+            <div class="card pages-card">
                 <div class="card-header flex-col-sm">
                     <div>
-                        <h2 class="card-title">Extracted Questions</h2>
-                        <p class="card-subtitle">Filter questions by topic or search keywords</p>
+                        <h2 class="card-title">Extracted Page Content</h2>
+                        <p class="card-subtitle">Review extracted text and extraction method for each page</p>
                     </div>
                     <!-- Search Input -->
                     <div class="search-box">
                         <span class="search-icon">🔍</span>
-                        <input type="text" id="questionSearch" placeholder="Search extracted questions...">
+                        <input type="text" id="pageSearch" placeholder="Search extracted text...">
                     </div>
                 </div>
 
-                <!-- Topic Filter Pills -->
-                <div class="filter-pills-bar" id="topicFilters">
-                    <button class="filter-pill active" data-topic="all">All Topics</button>
+                <!-- Method Filter Pills -->
+                <div class="filter-pills-bar">
+                    <button class="filter-pill active" data-filter="all">All Pages</button>
+                    <button class="filter-pill" data-filter="text">📝 Direct Text</button>
+                    <button class="filter-pill" data-filter="ocr">🔍 OCR Fallback</button>
                 </div>
 
-                <!-- Questions Feed -->
-                <div class="questions-list" id="questionsList">
-                    <!-- Cards will be populated here -->
+                <!-- Pages Feed -->
+                <div class="pages-list" id="pagesList">
+                    <!-- Page cards will be populated here -->
                 </div>
             </div>
         </section>
@@ -195,7 +184,7 @@
     </div>
 
     <!-- Toast notification -->
-    <div id="toast" class="toast hidden">Question copied to clipboard!</div>
+    <div id="toast" class="toast hidden">Text copied to clipboard!</div>
 
     <script src="script.js"></script>
 </body>

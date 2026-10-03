@@ -4,10 +4,8 @@
 let state = {
     selectedFiles: [],
     analysisData: null,
-    activeTopicFilter: 'all',
-    searchQuery: '',
-    chartType: 'bar',
-    chartInstance: null
+    activeFilter: 'all', // 'all', 'text', 'ocr'
+    searchQuery: ''
 };
 
 // Configurable API URL for seamless transition to Vercel/Render
@@ -45,17 +43,15 @@ const progressPercent = document.getElementById('progressPercent');
 const progressBar = document.getElementById('progressBar');
 
 const resultsSection = document.getElementById('resultsSection');
+const topSummaryText = document.getElementById('topSummaryText');
+const statTotalPages = document.getElementById('statTotalPages');
+const statTextPages = document.getElementById('statTextPages');
+const statOcrPages = document.getElementById('statOcrPages');
 const statPapersCount = document.getElementById('statPapersCount');
-const statQuestionsCount = document.getElementById('statQuestionsCount');
-const statTopTopic = document.getElementById('statTopTopic');
-const statTopicsFound = document.getElementById('statTopicsFound');
 
-const topicsChartCanvas = document.getElementById('topicsChart');
-const chartToggleBtns = document.querySelectorAll('.chart-toggle-btn');
-
-const questionSearch = document.getElementById('questionSearch');
-const topicFilters = document.getElementById('topicFilters');
-const questionsList = document.getElementById('questionsList');
+const pageSearch = document.getElementById('pageSearch');
+const pagesList = document.getElementById('pagesList');
+const filterPills = document.querySelectorAll('.filter-pill');
 
 const backendStatus = document.getElementById('backendStatus');
 const statusText = document.getElementById('statusText');
@@ -76,7 +72,6 @@ window.addEventListener('DOMContentLoaded', () => {
     checkBackendHealth();
     setupDropzone();
     setupConfigModal();
-    setupChartToggles();
     setupFiltersAndSearch();
 });
 
@@ -202,7 +197,7 @@ function updateFilePreview() {
 }
 
 // --------------------------------------------------------------------------
-// RUN ANALYSIS
+// RUN ANALYSIS (KEEP PROGRESS MESSAGE & ERROR HANDLING)
 // --------------------------------------------------------------------------
 async function runAnalysis() {
     if (state.selectedFiles.length === 0) return;
@@ -214,13 +209,13 @@ async function runAnalysis() {
     const formData = new FormData();
     state.selectedFiles.forEach(f => formData.append('files', f));
 
-    // Simulated progress steps
+    // Progress message steps
     let step = 0;
     const steps = [
         { text: 'Uploading PDF papers...', pct: 20 },
-        { text: 'Extracting page text with PyMuPDF...', pct: 50 },
-        { text: 'Parsing questions and identifying topics...', pct: 80 },
-        { text: 'Aggregating frequency counts...', pct: 95 }
+        { text: 'Extracting text (direct text + OCR fallback per page)...', pct: 50 },
+        { text: 'Finalizing page extractions...', pct: 85 },
+        { text: 'Aggregating results...', pct: 95 }
     ];
 
     const interval = setInterval(() => {
@@ -274,205 +269,95 @@ function renderDashboard(data) {
 
     resultsSection.scrollIntoView({ behavior: 'smooth' });
 
-    // Metric Cards
+    // 1. Top Summary Banner (e.g. "35 pages: 0 text, 35 OCR")
+    topSummaryText.textContent = data.summary || `${data.total_pages} pages: ${data.text_pages} text, ${data.ocr_pages} OCR`;
+
+    // 2. Metric Cards
+    statTotalPages.textContent = data.total_pages;
+    statTextPages.textContent = data.text_pages;
+    statOcrPages.textContent = data.ocr_pages;
     statPapersCount.textContent = data.paper_count || state.selectedFiles.length || 1;
-    statQuestionsCount.textContent = data.total_questions || data.questions.length;
-    
-    const topTopicEntry = Object.entries(data.topics_ranking || {})[0];
-    statTopTopic.textContent = topTopicEntry ? `${topTopicEntry[0]} (${topTopicEntry[1]}x)` : 'None';
-    statTopicsFound.textContent = Object.keys(data.topics_ranking || {}).length;
 
-    // Render Chart
-    renderChart(data.topics_ranking);
-
-    // Render Topic Filters
-    buildTopicFilters(data.topics_ranking);
-
-    // Render Questions List
-    renderQuestions();
+    // 3. Render Pages List
+    renderPages();
 }
 
 // --------------------------------------------------------------------------
-// CHART RENDERING (Chart.js)
-// --------------------------------------------------------------------------
-function setupChartToggles() {
-    chartToggleBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            chartToggleBtns.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            state.chartType = btn.dataset.chart;
-            if (state.analysisData) {
-                renderChart(state.analysisData.topics_ranking);
-            }
-        });
-    });
-}
-
-function renderChart(topicsRanking) {
-    const labels = Object.keys(topicsRanking || {});
-    const counts = Object.values(topicsRanking || {});
-
-    if (state.chartInstance) {
-        state.chartInstance.destroy();
-    }
-
-    const ctx = topicsChartCanvas.getContext('2d');
-
-    const colors = [
-        '#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', '#6366f1'
-    ];
-
-    if (state.chartType === 'bar') {
-        state.chartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Question Count',
-                    data: counts,
-                    backgroundColor: colors.slice(0, labels.length),
-                    borderRadius: 8,
-                    borderSkipped: false
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: '#1f2937',
-                        titleColor: '#f9fafb',
-                        bodyColor: '#93c5fd',
-                        borderColor: '#374151',
-                        borderWidth: 1,
-                        padding: 10
-                    }
-                },
-                scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: { color: '#9ca3af', font: { family: 'Plus Jakarta Sans', weight: '500' } }
-                    },
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: 'rgba(55, 65, 81, 0.4)' },
-                        ticks: { stepSize: 1, color: '#9ca3af' }
-                    }
-                }
-            }
-        });
-    } else {
-        // Doughnut chart
-        state.chartInstance = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: counts,
-                    backgroundColor: colors.slice(0, labels.length),
-                    borderColor: '#111827',
-                    borderWidth: 3
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: { color: '#f3f4f6', font: { family: 'Plus Jakarta Sans' } }
-                    }
-                }
-            }
-        });
-    }
-}
-
-// --------------------------------------------------------------------------
-// FILTERS & QUESTIONS LIST
+// FILTERS & SEARCH
 // --------------------------------------------------------------------------
 function setupFiltersAndSearch() {
-    questionSearch.addEventListener('input', (e) => {
+    pageSearch.addEventListener('input', (e) => {
         state.searchQuery = e.target.value.toLowerCase().trim();
-        renderQuestions();
+        renderPages();
+    });
+
+    filterPills.forEach(pill => {
+        pill.addEventListener('click', () => {
+            filterPills.forEach(p => p.classList.remove('active'));
+            pill.classList.add('active');
+            state.activeFilter = pill.dataset.filter;
+            renderPages();
+        });
     });
 }
 
-function buildTopicFilters(topicsRanking) {
-    topicFilters.innerHTML = '';
+function renderPages() {
+    if (!state.analysisData || !state.analysisData.pages) return;
 
-    const allBtn = document.createElement('button');
-    allBtn.className = 'filter-pill active';
-    allBtn.dataset.topic = 'all';
-    allBtn.textContent = 'All Topics';
-    allBtn.addEventListener('click', () => selectTopicFilter('all'));
-    topicFilters.appendChild(allBtn);
+    pagesList.innerHTML = '';
 
-    Object.keys(topicsRanking || {}).forEach(topic => {
-        const btn = document.createElement('button');
-        btn.className = 'filter-pill';
-        btn.dataset.topic = topic;
-        btn.textContent = `${topic} (${topicsRanking[topic]})`;
-        btn.addEventListener('click', () => selectTopicFilter(topic));
-        topicFilters.appendChild(btn);
-    });
-}
+    const filtered = state.analysisData.pages.filter(p => {
+        // Filter by method: 'all', 'text', 'ocr'
+        const matchesFilter = state.activeFilter === 'all' || p.method === state.activeFilter;
 
-function selectTopicFilter(topic) {
-    state.activeTopicFilter = topic;
-    document.querySelectorAll('.filter-pill').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.topic === topic);
-    });
-    renderQuestions();
-}
+        // Filter by search query
+        const textToSearch = (p.text || '').toLowerCase();
+        const filenameSearch = (p.filename || '').toLowerCase();
+        const matchesSearch = !state.searchQuery || 
+            textToSearch.includes(state.searchQuery) || 
+            filenameSearch.includes(state.searchQuery);
 
-function renderQuestions() {
-    if (!state.analysisData || !state.analysisData.questions) return;
-
-    questionsList.innerHTML = '';
-
-    const filtered = state.analysisData.questions.filter(q => {
-        const matchesTopic = state.activeTopicFilter === 'all' || 
-            (q.topics && q.topics.includes(state.activeTopicFilter));
-
-        const textToSearch = ((q.full_text || '') + ' ' + (q.display_text || '')).toLowerCase();
-        const matchesSearch = !state.searchQuery || textToSearch.includes(state.searchQuery);
-
-        return matchesTopic && matchesSearch;
+        return matchesFilter && matchesSearch;
     });
 
     if (filtered.length === 0) {
-        questionsList.innerHTML = `<div class="no-results">No questions match your filter.</div>`;
+        pagesList.innerHTML = `<div class="no-results">No pages match your filter or search query.</div>`;
         return;
     }
 
-    filtered.forEach(q => {
-        const item = document.createElement('div');
-        item.className = 'question-item';
+    filtered.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'page-card';
 
-        const fullText = q.full_text || q.display_text;
+        const isText = p.method === 'text';
+        const methodBadge = isText 
+            ? `<span class="method-badge method-text">📝 Text</span>` 
+            : `<span class="method-badge method-ocr">🔍 OCR</span>`;
 
-        const topicBadges = (q.topics && q.topics.length > 0)
-            ? q.topics.map(t => `<span class="topic-tag">${t}</span>`).join('')
-            : `<span class="topic-tag" style="color:var(--text-muted)">Uncategorized</span>`;
+        const filenameLabel = p.filename ? `• <span style="color:var(--text-secondary)">${escapeHtml(p.filename)}</span>` : '';
+        const charLabel = `${p.char_count || (p.text ? p.text.length : 0)} characters`;
+        const contentText = p.text && p.text.trim().length > 0 
+            ? escapeHtml(p.text) 
+            : '<em style="color:var(--text-muted)">[No text could be extracted from this page]</em>';
 
-        item.innerHTML = `
-            <div class="question-content">
-                <div class="question-meta">
-                    ${topicBadges}
+        card.innerHTML = `
+            <div class="page-header">
+                <div class="page-meta">
+                    <span class="page-title">Page ${p.page_num} ${filenameLabel}</span>
+                    ${methodBadge}
+                    <span class="page-chars">(${charLabel})</span>
                 </div>
-                <div class="question-text">${escapeHtml(fullText)}</div>
+                <button class="copy-btn" title="Copy Page Text">📋 Copy Text</button>
             </div>
-            <button class="copy-btn" title="Copy Question">📋 Copy</button>
+            <div class="page-text-preview">${contentText}</div>
         `;
 
-        item.querySelector('.copy-btn').addEventListener('click', () => {
-            navigator.clipboard.writeText(fullText);
-            showToast('Question copied to clipboard!');
+        card.querySelector('.copy-btn').addEventListener('click', () => {
+            navigator.clipboard.writeText(p.text || '');
+            showToast(`Page ${p.page_num} text copied!`);
         });
 
-        questionsList.appendChild(item);
+        pagesList.appendChild(card);
     });
 }
 

@@ -5,10 +5,8 @@ import os
 
 try:
     from backend.pdf_processor import extract_text_from_pdf
-    from backend.analyzer import analyze_paper
 except ImportError:
     from pdf_processor import extract_text_from_pdf
-    from analyzer import analyze_paper
 
 app = FastAPI(title="PYQ Analyzer API")
 
@@ -27,31 +25,42 @@ def health_check():
 
 @app.post("/analyze")
 async def analyze_papers(files: List[UploadFile] = File(...)):
-    overall_topics_count = {}
-    all_questions = []
+    """
+    Accepts one or more PDF files and extracts text per page using:
+    - Direct PyMuPDF text extraction if > 50 characters of text exist on the page.
+    - OCR pipeline (image rendering + grayscale preprocessing + OCR) if little/no text exists.
+    Returns per-page details with 'method' ('text' or 'ocr') and a top-level summary.
+    """
+    all_pages = []
+    total_text_pages = 0
+    total_ocr_pages = 0
 
     for file in files:
-        # Read file directly into memory for serverless compatibility
+        # Read file bytes in memory (safe for local and serverless)
         content = await file.read()
-        text = extract_text_from_pdf(file_bytes=content)
         
-        # Analyze paper text
-        result = analyze_paper(text)
-        
-        # Aggregate results
-        for topic, count in result["topics_count"].items():
-            overall_topics_count[topic] = overall_topics_count.get(topic, 0) + count
-            
-        all_questions.extend(result["questions"])
+        # Process the PDF with per-page hybrid detection
+        result = extract_text_from_pdf(
+            file_bytes=content,
+            filename=file.filename
+        )
 
-    # Sort topics by count descending
-    sorted_topics = dict(sorted(overall_topics_count.items(), key=lambda item: item[1], reverse=True))
+        total_text_pages += result["text_pages"]
+        total_ocr_pages += result["ocr_pages"]
+        all_pages.extend(result["pages"])
+
+    total_pages = total_text_pages + total_ocr_pages
+
+    # Generate summary string in the requested format (e.g. "35 pages: 0 text, 35 OCR")
+    summary_text = f"{total_pages} pages: {total_text_pages} text, {total_ocr_pages} OCR"
 
     return {
+        "summary": summary_text,
+        "total_pages": total_pages,
+        "text_pages": total_text_pages,
+        "ocr_pages": total_ocr_pages,
         "paper_count": len(files),
-        "total_questions": len(all_questions),
-        "topics_ranking": sorted_topics,
-        "questions": all_questions
+        "pages": all_pages
     }
 
 if __name__ == "__main__":
