@@ -1,0 +1,7 @@
+{
+  "Data Structures": ["array", "linked list", "stack", "queue", "tree", "graph", "hash"],
+  "Algorithms": ["sorting", "searching", "dynamic programming", "greedy", "recursion", "complexity"],
+  "Operating Systems": ["process", "thread", "scheduling", "deadlock", "memory management", "file system", "paging", "segmentation"],
+  "Databases": ["sql", "normalization", "transaction", "index", "relational", "nosql", "acid"],
+  "Computer Networks": ["osi", "tcp", "ip", "routing", "socket", "dns", "http", "udp"]
+}
