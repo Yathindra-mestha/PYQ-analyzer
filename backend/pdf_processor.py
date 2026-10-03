@@ -22,9 +22,9 @@ def _get_tesseract_cmd():
 cmd = _get_tesseract_cmd()
 if cmd:
     pytesseract.pytesseract.tesseract_cmd = cmd
-else:
-    # Set TESSDATA_PREFIX as fallback for PyMuPDF OCR
-    os.environ["TESSDATA_PREFIX"] = os.path.join(os.getcwd(), "tessdata")
+
+# ALWAYS set TESSDATA_PREFIX so Tesseract knows where to find eng.traineddata
+os.environ["TESSDATA_PREFIX"] = os.path.join(os.getcwd(), "tessdata")
 
 IMAGE_DIR = "static/images"
 os.makedirs(IMAGE_DIR, exist_ok=True)
@@ -70,7 +70,11 @@ def extract_text_from_pdf(file_bytes: bytes = None, filepath: str = None, filena
             lines = []
             try:
                 img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("L")
-                data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+                
+                tessdata_path = os.path.join(os.getcwd(), "tessdata")
+                custom_config = f'--tessdata-dir "{tessdata_path}"'
+                
+                data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT, config=custom_config)
                 
                 lines_dict = {}
                 for i in range(len(data['text'])):
